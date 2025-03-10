@@ -1,1 +1,1 @@
-# My Exploration about GRPO-RL to build Qwen-R1 base on Qwen2.5 series
+# My Exploration about building Qwen-R1(small model) using GRPO-RL
