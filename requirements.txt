@@ -1,0 +1,27 @@
+accelerate>=1.2.1
+bitsandbytes
+ruff>=0.9.0
+datasets>=3.2.0
+deepspeed
+distilabel[vllm,ray,openai]>=1.5.2
+einops>=0.8.0
+flake8>=6.0.0
+hf_transfer>=0.1.4
+huggingface-hub[cli]>=0.19.2,<1.0
+isort>=5.12.0
+#liger_kernel==0.5.2
+# lighteval@git+https://github.com/huggingface/lighteval.git@86f62259f105ae164f655e0b91c92a823a742724#egg=lighteval[math]
+math-verify
+packaging>=23.0
+parameterized>=0.9.0
+pytest
+safetensors>=0.3.3
+sentencepiece>=0.1.99
+torch==2.5.1
+transformers==4.48.2
+trl==0.15.2
+#trl@git+https://github.com/huggingface/trl.git@019fc6dbaa03b888f9d5c1845f0f690da8ed310c#egg=trl[main]
+#vllm==0.7.2
+wandb>=0.19.1
+#peft
+# flash-attn
