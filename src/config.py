@@ -34,7 +34,18 @@ class GRPOConfig(trl.GRPOConfig):
         default=None,
         metadata={"help": ("The project to store runs under.")},
     )
-
+    num_iterations: Optional[int] = field(
+        default=1,
+        metadata={
+            "help": "𝜇 for GRPO, num of update per advantage."
+        },
+    )
+    epsilon: Optional[float] = field(
+        default=1,
+        metadata={
+            "help": "ɛ clipping threshold that limits how much the ratio between the new policy’s probability and the old policy’s probability can change."
+        },
+    )
 @dataclass
 class SFTConfig(trl.SFTConfig):
     """
@@ -68,4 +79,15 @@ class SFTConfig(trl.SFTConfig):
         default=None,
         metadata={"help": ("The project to store runs under.")},
     )
-
+    num_iterations: Optional[int] = field(
+        default=1,
+        metadata={
+            "help": "𝜇 for GRPO, num of update per advantage."
+        },
+    )
+    epsilon: Optional[float] = field(
+        default=1,
+        metadata={
+            "help": "ɛ clipping threshold that limits how much the ratio between the new policy’s probability and the old policy’s probability can change."
+        },
+    )
