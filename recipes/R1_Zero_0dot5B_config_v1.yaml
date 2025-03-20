@@ -15,7 +15,7 @@ num_processes: 1
 bf16: true
 use_vllm: true
 vllm_device: auto
-vllm_gpu_memory_utilization: 0.1
+vllm_gpu_memory_utilization: 0.10
 do_eval: false
 eval_strategy: "no"
 eval_steps: 10
@@ -28,9 +28,9 @@ log_level: info
 logging_steps: 1
 logging_strategy: steps
 lr_scheduler_type: cosine
-max_prompt_length: 2048
+max_prompt_length: 1024
 num_generations: 4
-max_completion_length: 8192
+max_completion_length: 4096
 max_steps: -1
 num_train_epochs: 2
 output_dir: output/Qwen2.5-0.5B-R1-GRPO-V1
