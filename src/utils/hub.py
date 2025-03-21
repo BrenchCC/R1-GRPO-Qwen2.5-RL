@@ -18,7 +18,7 @@ from trl import GRPOConfig,SFTConfig
 
 logger = logging.getLogger(__name__)
 
-def push_to_hub_version(training_args: SFTConfig | GRPOConfig, extra_ignore_patterns=[]) -> Future:
+def push_to_hub_revision(training_args: SFTConfig | GRPOConfig, extra_ignore_patterns=[]) -> Future:
     """pushes the model to branch on a hub repo"""
 
     # create a repo if it doesn't exist yet
