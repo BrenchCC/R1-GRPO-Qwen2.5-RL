@@ -10,8 +10,8 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModel,set_seed
 from transformers.trainer_utils import get_last_checkpoint
 
-from config import GRPOConfig
-from rewards import (
+from src.config import GRPOConfig
+from src.rewards import (
     accuracy_reward,
     format_reward,
     get_cosine_scaled_reward,
@@ -19,8 +19,8 @@ from rewards import (
     len_reward,
     reasoning_steps_reward
 )
-from utils.callbacks import get_callbacks
-from brench_grpo_trainer import BrenchGRPOTrainer
+from src.utils.callbacks import get_callbacks
+from src.brench_grpo_trainer import BrenchGRPOTrainer
 from trl import ModelConfig, ScriptArguments, TrlParser, get_peft_config
 from peft import LoraConfig, PeftModel, get_peft_model
 
@@ -87,6 +87,55 @@ SYSTEM_PROMPT = (
     "<think> reasoning process here </think><answer> answer here </answer>"
 )
 
+def maybe_init_wandb(training_args):
+    if "wandb" in training_args.report_to:
+        init_wandb_training(training_args)
+
+
+def load_and_prepare_dataset(script_args):
+    dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
+    if script_args.dataset_name == "FreedomIntelligence/medical-o1-verifiable-problem":
+        dataset = dataset.rename_columns({
+            "Open-ended Verifiable Question": "problem",
+            "Ground-True Answer": "solution",
+        })
+
+    def make_conversation(example):
+        return {
+            "prompt": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": example["problem"]},
+            ],
+        }
+
+    dataset = dataset.map(make_conversation)
+    for split in dataset:
+        if "messages" in dataset[split].column_names:
+            dataset[split] = dataset[split].remove_columns("messages")
+    return dataset
+
+
+def get_reward_funcs(script_args):
+    reward_funcs_registry = {
+        "accuracy": accuracy_reward,
+        "format": format_reward,
+        "reasoning_steps": reasoning_steps_reward,
+        "cosine": get_cosine_scaled_reward(
+            min_value_wrong=script_args.cosine_min_value_wrong,
+            max_value_wrong=script_args.cosine_max_value_wrong,
+            min_value_correct=script_args.cosine_min_value_correct,
+            max_value_correct=script_args.cosine_max_value_correct,
+            max_len=script_args.cosine_max_len,
+        ),
+        "repetition_penalty": get_repetition_penalty_reward(
+            ngram_size=script_args.repetition_n_grams,
+            max_penalty=script_args.repetition_max_penalty,
+        ),
+        "length": len_reward,
+    }
+    return [reward_funcs_registry[func] for func in script_args.reward_funcs]
+
+
 
 def main(script_args, training_args, model_args):
     # Set seed for reproducibility
@@ -123,52 +172,10 @@ def main(script_args, training_args, model_args):
     if last_checkpoint is not None and training_args.resume_from_checkpoint is None:
         logger.info(f"Checkpoint detected, resuming training at {last_checkpoint=}.")
 
-    if "wandb" in training_args.report_to:
-        init_wandb_training(training_args)
+    maybe_init_wandb(training_args)
 
-    # Load the dataset
-    dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
-
-    # align the dataset
-    if script_args.dataset_name == "FreedomIntelligence/medical-o1-verifiable-problem":
-        dataset = dataset.rename_columns({
-            "Open-ended Verifiable Question": "problem",
-            "Ground-True Answer": "solution"
-        })
-
-    # Get reward functions
-    REWARD_FUNCS_REGISTRY = {
-        "accuracy": accuracy_reward,
-        "format": format_reward,
-        "reasoning_steps": reasoning_steps_reward,
-        "cosine": get_cosine_scaled_reward(
-            min_value_wrong=script_args.cosine_min_value_wrong,
-            max_value_wrong=script_args.cosine_max_value_wrong,
-            min_value_correct=script_args.cosine_min_value_correct,
-            max_value_correct=script_args.cosine_max_value_correct,
-            max_len=script_args.cosine_max_len,
-        ),
-        "repetition_penalty": get_repetition_penalty_reward(
-            ngram_size=script_args.repetition_n_grams,
-            max_penalty=script_args.repetition_max_penalty,
-        ),
-        "length": len_reward,
-    }
-    reward_funcs = [REWARD_FUNCS_REGISTRY[func] for func in script_args.reward_funcs]
-
-    # Format into conversation
-    def make_conversation(example):
-        return {
-            "prompt": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": example["problem"]},
-            ],
-        }
-
-    dataset = dataset.map(make_conversation)
-    for split in dataset:
-        if "messages" in dataset[split].column_names:
-            dataset[split] = dataset[split].remove_columns("messages")
+    dataset = load_and_prepare_dataset(script_args)
+    reward_funcs = get_reward_funcs(script_args)
 
 
     logger.info("*** Initializing model kwargs ***")
