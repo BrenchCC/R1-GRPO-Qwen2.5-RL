@@ -16,10 +16,9 @@ CUDA_VISIBLE_DEVICES = 0,1 python ./src/benchmark.py \
 
 
 from datasets import load_dataset
-from vllm import LLM, SamplingParams
 import argparse
 import json
-from src.grpo import SYSTEM_PROMPT
+from src.prompts import SYSTEM_PROMPT
 from src.rewards import accuracy_answer_reward
 import re
 from transformers import AutoTokenizer
@@ -54,7 +53,7 @@ def create_dataset(dataset_name, tokenizer):
 
     return dataset
 
-def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,dtype):
+def vllm_generate(model_name, output_name, dataset_name, num_gpus, max_output_tokens, dtype):
     from vllm import LLM, SamplingParams
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -70,7 +69,7 @@ def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,
         prompts.append(data['prompt'])
 
     # Create a sampling params object
-    sampling_params = SamplingParams(temperature=0.6,max_tokens=max_output_token)
+    sampling_params = SamplingParams(temperature=0.6, max_tokens=max_output_tokens)
 
     llm = LLM(
         model = model_name,
