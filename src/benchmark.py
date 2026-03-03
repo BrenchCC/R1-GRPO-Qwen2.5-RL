@@ -16,9 +16,10 @@ CUDA_VISIBLE_DEVICES = 0,1 python ./src/benchmark.py \
 
 
 from datasets import load_dataset
+from vllm import LLM, SamplingParams
 import argparse
 import json
-from src.prompts import SYSTEM_PROMPT
+from src.grpo import SYSTEM_PROMPT
 from src.rewards import accuracy_answer_reward
 import re
 from transformers import AutoTokenizer
