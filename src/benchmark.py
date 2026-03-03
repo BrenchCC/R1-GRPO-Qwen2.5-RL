@@ -15,13 +15,19 @@ CUDA_VISIBLE_DEVICES = 0,1 python ./src/benchmark.py \
 '''
 
 
-from datasets import load_dataset
 import argparse
 import json
 from src.prompts import SYSTEM_PROMPT
 from src.rewards import accuracy_answer_reward
 import re
-from transformers import AutoTokenizer
+
+
+def _pick_first_existing(example, keys):
+    for key in keys:
+        value = example.get(key)
+        if value is not None:
+            return value
+    raise KeyError(f"None of the expected keys exist: {keys}")
 
 
 def _pick_first_existing(example, keys):
@@ -38,7 +44,9 @@ def format_reward(completion):
     return rewards
 
 def create_dataset(dataset_name, tokenizer):
-    dataset = load_dataset(dataset_name,split='test')
+    from datasets import load_dataset
+
+    dataset = load_dataset(dataset_name, split='test')
 
     def make_conversation(example):
         return {
@@ -62,6 +70,7 @@ def create_dataset(dataset_name, tokenizer):
     return dataset
 
 def vllm_generate(model_name, output_name, dataset_name, num_gpus, max_output_tokens, dtype):
+    from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -138,8 +147,6 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', type=str, default='HuggingFaceH4/MATH-500', required=True,
                         help='dataset path')
     parser.add_argument('--max_output_tokens', type=int, default=1024,
-                        help='generation tokens')
-    parser.add_argument('--batch_size', type=int, default=1,
                         help='generation tokens')
     parser.add_argument('--num_gpus', type=int, default=1,
                         help='generation tokens')

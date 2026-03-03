@@ -21,18 +21,6 @@ math_verify_stub.parse = lambda *args, **kwargs: []
 math_verify_stub.verify = lambda *args, **kwargs: False
 sys.modules.setdefault("math_verify", math_verify_stub)
 
-datasets_stub = types.ModuleType("datasets")
-datasets_stub.load_dataset = lambda *args, **kwargs: None
-sys.modules.setdefault("datasets", datasets_stub)
-
-transformers_stub = types.ModuleType("transformers")
-class _AutoTokenizer:
-    @staticmethod
-    def from_pretrained(*args, **kwargs):
-        return None
-transformers_stub.AutoTokenizer = _AutoTokenizer
-sys.modules.setdefault("transformers", transformers_stub)
-
 from src.benchmark import _pick_first_existing
 
 
