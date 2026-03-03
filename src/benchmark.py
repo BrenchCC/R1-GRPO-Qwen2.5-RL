@@ -55,6 +55,8 @@ def create_dataset(dataset_name, tokenizer):
     return dataset
 
 def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,dtype):
+    from vllm import LLM, SamplingParams
+
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     # evaluation dataset preparation
