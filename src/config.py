@@ -8,13 +8,13 @@ class GRPOConfig(trl.GRPOConfig):
     """
     args for callbacks, benchmarks etc
     """
-    benchmarks: list(str) = field(
+    benchmarks: list[str] = field(
         default_factory=lambda: [], metadata={"help": "The benchmarks set to run after training."}
     )
     system_prompt: Optional[str] = field(
         default=None, metadata={"help": "The optional system prompt set to use for benchmarking."}
     )
-    callbacks: list(str) = field(
+    callbacks: list[str] = field(
         default_factory=lambda: [], metadata={"help": "The callbacks set to run during training."}
     )
     hub_model_revision: Optional[str] = field(

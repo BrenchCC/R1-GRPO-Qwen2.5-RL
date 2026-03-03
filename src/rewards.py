@@ -2,16 +2,19 @@
 
 import re
 from typing import Dict
-import os
 import math
-from openai import OpenAI
+import os
 from latex2sympy2_extended import NormalizationConfig
-from math_verify import LatexExtractionConfig,parse,verify
+from math_verify import LatexExtractionConfig, parse, verify
 
-client = OpenAI(
-    api_key='',
-    base_url=''
-)
+
+_DEBUG_REWARDS = os.getenv("DEBUG_REWARDS", "0") == "1"
+
+
+def _debug_print(*args, **kwargs):
+    if _DEBUG_REWARDS:
+        print(*args, **kwargs)
+
 
 def normalize_text(text):
     if text is None:
@@ -59,21 +62,20 @@ def accuracy_reward(completions, solution, **kwargs):
             )
 
             reward = float(verify(answer_parsed, gold_parsed))
-            print('#'*100)
-            print('\nanswer_parsed:', answer_parsed, '\ngold_parsed:', gold_parsed, '\nreward:', reward)
+            _debug_print('#'*100)
+            _debug_print('\nanswer_parsed:', answer_parsed, '\ngold_parsed:', gold_parsed, '\nreward:', reward)
         else :
             # For medical text answers, extract from <answer> tags and use GPT4O-mini for evaluation
             answer_content = extract_answer(content)
             normalized_content = normalize_text(answer_content)
             normalized_solution = normalize_text(sol)
             reward = evaluate_answer_similarity(normalized_content, normalized_solution)
-            print('#' * 100)
-            print('\nanswer_parsed:', normalized_content, '\ngold_parsed:', normalized_solution, '\nreward:', reward)
+            _debug_print('#' * 100)
+            _debug_print('\nanswer_parsed:', normalized_content, '\ngold_parsed:', normalized_solution, '\nreward:', reward)
         rewards.append(reward)
 
-        print('\naccuracy rewards:', rewards)
-
-        return rewards
+    _debug_print('\naccuracy rewards:', rewards)
+    return rewards
 
 def accuracy_answer_reward(completion,answer,**kwargs):
     """Reward function that checks if the completion is the same as the ground truth."""
@@ -102,8 +104,8 @@ def accuracy_answer_reward(completion,answer,**kwargs):
             extraction_mode = "first_match",
         )
         reward = float(verify(answer_parsed, gold_parsed))
-        print('#' * 100)
-        print('\nanswer_parsed:', answer_parsed,'\ngold_parsed:', gold_parsed, '\nreward:', reward)
+        _debug_print('#' * 100)
+        _debug_print('\nanswer_parsed:', answer_parsed,'\ngold_parsed:', gold_parsed, '\nreward:', reward)
     return reward
 
 def format_reward(completions,**kwargs):
@@ -114,8 +116,8 @@ def format_reward(completions,**kwargs):
 
     rewards = [1.0 if match else 0.0 for match in matches]
 
-    print('#' * 100)
-    print("\nformat rewards:",rewards)
+    _debug_print('#' * 100)
+    _debug_print("\nformat rewards:", rewards)
     return rewards
 
 def reasoning_steps_reward(completions,**kwargs):
@@ -135,7 +137,7 @@ def reasoning_steps_reward(completions,**kwargs):
     # Magic number 3 to encourage 3 steps and more, otherwise partial reward
     return [min(1.0, count / 3)for count in matches]
 
-def len_reward(completions:list[Dict[str,str]], solutions:list[str],**kwargs) -> float:
+def len_reward(completions:list[Dict[str,str]], solutions:list[str],**kwargs) -> list[float]:
     """
     Compute length-based rewards to discourage overthinking and promote token efficiency.
     Taken from the Kimi 1.5 tech report: https://arxiv.org/abs/2501.12599
@@ -162,7 +164,7 @@ def len_reward(completions:list[Dict[str,str]], solutions:list[str],**kwargs) ->
         if len(gold_parsed) == 0:
             # Skip unparseable example
             correctness.append(True)
-            print("Failed to parse gold solution from ",sol)
+            _debug_print("Failed to parse gold solution from ", sol)
             continue
 
         answer_parsed = parse(
@@ -235,7 +237,7 @@ def get_cosine_scaled_reward(
             gold_parsed = parse(sol, extraction_mode="first_match", extraction_config=[LatexExtractionConfig()])
             if len(gold_parsed) == 0:
                 rewards.append(1.0)  # Skip unparseable examples
-                print("Failed to parse gold solution: ", sol)
+                _debug_print("Failed to parse gold solution: ", sol)
                 continue
 
             answer_parsed = parse(

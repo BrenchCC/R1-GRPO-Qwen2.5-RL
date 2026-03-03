@@ -3,26 +3,31 @@ CUDA_VISIBLE_DEVICES = 0 python ./src/benchmark.py \
     --model_name=Brench/Qwen2.5-R1-Zero-GRPO-1.5B-V1 \
     --dataset_name='HuggingFaceH4/MATH-500' \
     --output_name='./output/result_benchmark_math500' \
-    --max_output_token=8192 \
+    --max_output_tokens=8192 \
     --num_gpus=1
 
 CUDA_VISIBLE_DEVICES = 0,1 python ./src/benchmark.py \
     --model_name=Brench/Qwen2.5-R1-Zero-GRPO-1.5B-V1 \
     --dataset_name='HuggingFaceH4/MATH-500' \
     --output_name='./output/result_benchmark_math500' \
-    --max_output_token=8192 \
+    --max_output_tokens=8192 \
     --num_gpus=2
 '''
 
 
-from datasets import load_dataset, Dataset, DatasetDict
-from vllm import LLM,SamplingParams
 import argparse
 import json
-from grpo import SYSTEM_PROMPT
-from rewards import accuracy_answer_reward
+from src.prompts import SYSTEM_PROMPT
+from src.rewards import accuracy_answer_reward
 import re
-from transformers import AutoTokenizer
+
+
+def _pick_first_existing(example, keys):
+    for key in keys:
+        value = example.get(key)
+        if value is not None:
+            return value
+    raise KeyError(f"None of the expected keys exist: {keys}")
 
 def format_reward(completion):
     pattern = r"^<think>.*?</think><answer>.*?</answer>$"
@@ -31,13 +36,15 @@ def format_reward(completion):
     return rewards
 
 def create_dataset(dataset_name, tokenizer):
-    dataset = load_dataset(dataset_name,split='test')
+    from datasets import load_dataset
+
+    dataset = load_dataset(dataset_name, split='test')
 
     def make_conversation(example):
         return {
             "prompt": [
                 {"role":"system","content":SYSTEM_PROMPT},
-                {"role":"user","content":example["content"]},
+                {"role": "user", "content": _pick_first_existing(example, ["content", "problem", "question"])},
             ],
         }
     dataset = dataset.map(make_conversation)
@@ -45,8 +52,8 @@ def create_dataset(dataset_name, tokenizer):
     def format_function(example):
         example['prompt'] = tokenizer.apply_chat_template(
             example['prompt'],
-            toknize = False,
-            add_generation_prompt = True
+            tokenize=False,
+            add_generation_prompt=True
         )
         return example
 
@@ -54,7 +61,10 @@ def create_dataset(dataset_name, tokenizer):
 
     return dataset
 
-def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,dtype):
+def vllm_generate(model_name, output_name, dataset_name, num_gpus, max_output_tokens, dtype):
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
+
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     # evaluation dataset preparation
@@ -64,11 +74,11 @@ def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,
     answers = []
     prompts = []
     for data in dataset:
-        answers.append(data['answer'])
+        answers.append(_pick_first_existing(data, ["answer", "solution"]))
         prompts.append(data['prompt'])
 
     # Create a sampling params object
-    sampling_params = SamplingParams(temperature=0.6,max_tokens=max_output_token)
+    sampling_params = SamplingParams(temperature=0.6, max_tokens=max_output_tokens)
 
     llm = LLM(
         model = model_name,
@@ -86,8 +96,8 @@ def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,
     acc_scores = []
     format_scores = []
     result_all = []
-    total_acc = []
-    total_format = []
+    total_acc = 0.0
+    total_format = 0.0
 
     for output,gold_answer in zip(outputs,answers):
         prompt = output.prompt
@@ -95,11 +105,11 @@ def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,
 
         acc_score = accuracy_answer_reward(completion, gold_answer )
         acc_scores.append(acc_score)
-        total_acc = total_acc + acc_score
+        total_acc += acc_score
 
         format_score = format_reward(completion)
         format_scores.append(format_score)
-        total_format = total_format + format_score
+        total_format += format_score
 
         result_all.append({
             'prompt': prompt,
@@ -109,9 +119,11 @@ def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,
             'format score': format_score,
         })
 
-    print ('#'*100)
-    print ('eval_acc',total_acc/len(acc_scores))
-    print ('eval_format',total_format/len(format_scores))
+    print('#' * 100)
+    if not acc_scores:
+        raise ValueError('No generations produced; cannot compute metrics.')
+    print('eval_acc', total_acc / len(acc_scores))
+    print('eval_format', total_format / len(format_scores))
 
     current_result_file = output_name+'.json'
     with open(current_result_file,'w',encoding='utf-8') as f:
@@ -127,8 +139,6 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', type=str, default='HuggingFaceH4/MATH-500', required=True,
                         help='dataset path')
     parser.add_argument('--max_output_tokens', type=int, default=1024,
-                        help='generation tokens')
-    parser.add_argument('--batch_size', type=int, default=1,
                         help='generation tokens')
     parser.add_argument('--num_gpus', type=int, default=1,
                         help='generation tokens')
