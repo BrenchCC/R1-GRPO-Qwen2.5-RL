@@ -29,6 +29,14 @@ def _pick_first_existing(example, keys):
             return value
     raise KeyError(f"None of the expected keys exist: {keys}")
 
+
+def _pick_first_existing(example, keys):
+    for key in keys:
+        value = example.get(key)
+        if value is not None:
+            return value
+    raise KeyError(f"None of the expected keys exist: {keys}")
+
 def format_reward(completion):
     pattern = r"^<think>.*?</think><answer>.*?</answer>$"
     matches = re.match(pattern, completion)
