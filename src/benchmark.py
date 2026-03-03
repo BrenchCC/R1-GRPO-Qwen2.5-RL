@@ -23,6 +23,14 @@ from src.rewards import accuracy_answer_reward
 import re
 from transformers import AutoTokenizer
 
+
+def _pick_first_existing(example, keys):
+    for key in keys:
+        value = example.get(key)
+        if value is not None:
+            return value
+    raise KeyError(f"None of the expected keys exist: {keys}")
+
 def format_reward(completion):
     pattern = r"^<think>.*?</think><answer>.*?</answer>$"
     matches = re.match(pattern, completion)
@@ -36,7 +44,7 @@ def create_dataset(dataset_name, tokenizer):
         return {
             "prompt": [
                 {"role":"system","content":SYSTEM_PROMPT},
-                {"role":"user","content":example["content"]},
+                {"role": "user", "content": _pick_first_existing(example, ["content", "problem", "question"])},
             ],
         }
     dataset = dataset.map(make_conversation)
@@ -65,7 +73,7 @@ def vllm_generate(model_name, output_name, dataset_name, num_gpus, max_output_to
     answers = []
     prompts = []
     for data in dataset:
-        answers.append(data['answer'])
+        answers.append(_pick_first_existing(data, ["answer", "solution"]))
         prompts.append(data['prompt'])
 
     # Create a sampling params object
@@ -110,9 +118,11 @@ def vllm_generate(model_name, output_name, dataset_name, num_gpus, max_output_to
             'format score': format_score,
         })
 
-    print ('#'*100)
-    print ('eval_acc',total_acc/len(acc_scores))
-    print ('eval_format',total_format/len(format_scores))
+    print('#' * 100)
+    if not acc_scores:
+        raise ValueError('No generations produced; cannot compute metrics.')
+    print('eval_acc', total_acc / len(acc_scores))
+    print('eval_format', total_format / len(format_scores))
 
     current_result_file = output_name+'.json'
     with open(current_result_file,'w',encoding='utf-8') as f:
