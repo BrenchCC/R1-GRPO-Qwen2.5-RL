@@ -3,24 +3,23 @@ CUDA_VISIBLE_DEVICES = 0 python ./src/benchmark.py \
     --model_name=Brench/Qwen2.5-R1-Zero-GRPO-1.5B-V1 \
     --dataset_name='HuggingFaceH4/MATH-500' \
     --output_name='./output/result_benchmark_math500' \
-    --max_output_token=8192 \
+    --max_output_tokens=8192 \
     --num_gpus=1
 
 CUDA_VISIBLE_DEVICES = 0,1 python ./src/benchmark.py \
     --model_name=Brench/Qwen2.5-R1-Zero-GRPO-1.5B-V1 \
     --dataset_name='HuggingFaceH4/MATH-500' \
     --output_name='./output/result_benchmark_math500' \
-    --max_output_token=8192 \
+    --max_output_tokens=8192 \
     --num_gpus=2
 '''
 
 
-from datasets import load_dataset, Dataset, DatasetDict
-from vllm import LLM,SamplingParams
+from datasets import load_dataset
 import argparse
 import json
-from grpo import SYSTEM_PROMPT
-from rewards import accuracy_answer_reward
+from src.prompts import SYSTEM_PROMPT
+from src.rewards import accuracy_answer_reward
 import re
 from transformers import AutoTokenizer
 
@@ -45,8 +44,8 @@ def create_dataset(dataset_name, tokenizer):
     def format_function(example):
         example['prompt'] = tokenizer.apply_chat_template(
             example['prompt'],
-            toknize = False,
-            add_generation_prompt = True
+            tokenize=False,
+            add_generation_prompt=True
         )
         return example
 
@@ -55,6 +54,8 @@ def create_dataset(dataset_name, tokenizer):
     return dataset
 
 def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,dtype):
+    from vllm import LLM, SamplingParams
+
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     # evaluation dataset preparation
@@ -86,8 +87,8 @@ def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,
     acc_scores = []
     format_scores = []
     result_all = []
-    total_acc = []
-    total_format = []
+    total_acc = 0.0
+    total_format = 0.0
 
     for output,gold_answer in zip(outputs,answers):
         prompt = output.prompt
@@ -95,11 +96,11 @@ def vllm_generate(model_name,output_name,dataset_name,num_gpus,max_output_token,
 
         acc_score = accuracy_answer_reward(completion, gold_answer )
         acc_scores.append(acc_score)
-        total_acc = total_acc + acc_score
+        total_acc += acc_score
 
         format_score = format_reward(completion)
         format_scores.append(format_score)
-        total_format = total_format + format_score
+        total_format += format_score
 
         result_all.append({
             'prompt': prompt,

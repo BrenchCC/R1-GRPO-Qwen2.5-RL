@@ -2,16 +2,10 @@
 
 import re
 from typing import Dict
-import os
 import math
-from openai import OpenAI
 from latex2sympy2_extended import NormalizationConfig
 from math_verify import LatexExtractionConfig,parse,verify
 
-client = OpenAI(
-    api_key='',
-    base_url=''
-)
 
 def normalize_text(text):
     if text is None:
@@ -71,9 +65,8 @@ def accuracy_reward(completions, solution, **kwargs):
             print('\nanswer_parsed:', normalized_content, '\ngold_parsed:', normalized_solution, '\nreward:', reward)
         rewards.append(reward)
 
-        print('\naccuracy rewards:', rewards)
-
-        return rewards
+    print('\naccuracy rewards:', rewards)
+    return rewards
 
 def accuracy_answer_reward(completion,answer,**kwargs):
     """Reward function that checks if the completion is the same as the ground truth."""
