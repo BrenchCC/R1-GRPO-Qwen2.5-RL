@@ -23,14 +23,9 @@ import re
 
 
 def _pick_first_existing(example, keys):
-    for key in keys:
-        value = example.get(key)
-        if value is not None:
-            return value
-    raise KeyError(f"None of the expected keys exist: {keys}")
+    if not hasattr(example, "get"):
+        raise TypeError(f"Expected mapping-like object, got: {type(example).__name__}")
 
-
-def _pick_first_existing(example, keys):
     for key in keys:
         value = example.get(key)
         if value is not None:

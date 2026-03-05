@@ -78,7 +78,10 @@ class GRPOScriptArguments(ScriptArguments):
 
 
 def maybe_init_wandb(training_args):
-    if "wandb" in training_args.report_to:
+    report_to = training_args.report_to or []
+    if isinstance(report_to, str):
+        report_to = [report_to]
+    if "wandb" in report_to:
         init_wandb_training(training_args)
 
 
@@ -123,6 +126,11 @@ def get_reward_funcs(script_args):
         ),
         "length": len_reward,
     }
+    unknown_funcs = [func for func in script_args.reward_funcs if func not in reward_funcs_registry]
+    if unknown_funcs:
+        valid = ", ".join(sorted(reward_funcs_registry.keys()))
+        raise ValueError(f"Unknown reward function(s): {unknown_funcs}. Valid values: {valid}")
+
     return [reward_funcs_registry[func] for func in script_args.reward_funcs]
 
 

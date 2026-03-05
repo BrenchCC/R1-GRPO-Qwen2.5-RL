@@ -42,7 +42,6 @@ from trl.models import create_reference_model, prepare_deepspeed, unwrap_model_f
 from trl.import_utils import is_vllm_available
 from trl.trainer.callbacks import SyncRefModelCallback
 from trl.trainer.grpo_config import GRPOConfig
-from trl.trainer.grpo_trainer import RewardFunc
 from trl.trainer.utils import  pad, selective_log_softmax
 
 if is_peft_available():
@@ -54,7 +53,16 @@ if is_vllm_available():
 if is_wandb_available():
     import wandb
 
-RewardFunc = Union[str,PreTrainedModel,Callable[[list,list],list[float]]]
+
+logger = transformers.utils.logging.get_logger(__name__)
+_DEBUG_BRENCH_GRPO = os.getenv("DEBUG_BRENCH_GRPO", "0") == "1"
+
+
+def _debug_log(*args):
+    if _DEBUG_BRENCH_GRPO:
+        logger.info(" ".join(str(a) for a in args))
+
+RewardFuncType = Union[str, PreTrainedModel, Callable[[list, list], list[float]]]
 
 class RepeatRandomSampler(Sampler):
     """
@@ -150,7 +158,7 @@ class BrenchGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
         model: Union[str, PreTrainedModel],
-        reward_funcs: Union[RewardFunc, list[RewardFunc]],
+        reward_funcs: Union[RewardFuncType, list[RewardFuncType]],
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
@@ -223,8 +231,10 @@ class BrenchGRPOTrainer(GRPOTrainer):
             processing_class = AutoTokenizer.from_pretrained(model.config._name_or_path, padding_side="left")
 
         # Reward Functions
-        if not isinstance(reward_funcs,list):
+        if not isinstance(reward_funcs, list):
             reward_funcs = [reward_funcs]
+        if not reward_funcs:
+            raise ValueError("At least one reward function must be provided.")
         for i, reward_func in enumerate(reward_funcs):
             if isinstance(reward_func, str):
                 reward_funcs[i] = AutoModelForSequenceClassification.from_pretrained(reward_func, **model_init_kwargs)
@@ -633,6 +643,11 @@ class BrenchGRPOTrainer(GRPOTrainer):
                 keys = [key for key in inputs[0] if key not in ["prompt", "completion"]]
                 reward_kwargs = {key: [example[key] for example in inputs] for key in keys}
                 output_reward_func = reward_func(prompts=prompts, completions=completions, **reward_kwargs)
+                if len(output_reward_func) != len(prompts):
+                    raise ValueError(
+                        f"Reward function `{reward_func.__name__}` returned {len(output_reward_func)} values for "
+                        f"{len(prompts)} prompts."
+                    )
                 rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
 
         # Gather the reward per function: this part is crucial, because the rewards are normalized per group and the

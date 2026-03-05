@@ -29,6 +29,15 @@ class BenchmarkHelpersTests(unittest.TestCase):
         example = {"problem": "p", "question": "q"}
         self.assertEqual(_pick_first_existing(example, ["content", "problem", "question"]), "p")
 
+
+    def test_pick_first_existing_skips_none_and_uses_next(self):
+        example = {"content": None, "question": "q"}
+        self.assertEqual(_pick_first_existing(example, ["content", "question"]), "q")
+
+    def test_pick_first_existing_requires_mapping(self):
+        with self.assertRaises(TypeError):
+            _pick_first_existing([("content", "x")], ["content"])
+
     def test_pick_first_existing_raises_if_missing(self):
         with self.assertRaises(KeyError):
             _pick_first_existing({}, ["a", "b"])
