@@ -14,6 +14,14 @@ from datasets import Dataset, IterableDataset
 from packaging import version
 from torch import nn
 from torch.utils.data import Sampler
+
+logger = transformers.utils.logging.get_logger(__name__)
+_DEBUG_BRENCH_GRPO = os.getenv("DEBUG_BRENCH_GRPO", "0") == "1"
+
+
+def _debug_log(*args):
+    if _DEBUG_BRENCH_GRPO:
+        logger.info(" ".join(str(a) for a in args))
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
