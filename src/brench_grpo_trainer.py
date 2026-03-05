@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import torch
 import torch.utils.data
-import torch.nn as nn
 import transformers
 from accelerate.utils import broadcast_object_list, gather, gather_object, is_peft_model, set_seed
 from accelerate.utils.other import is_compiled_module
@@ -35,7 +34,6 @@ from trl.models import create_reference_model, prepare_deepspeed, unwrap_model_f
 from trl.import_utils import is_vllm_available
 from trl.trainer.callbacks import SyncRefModelCallback
 from trl.trainer.grpo_config import GRPOConfig
-from trl.trainer.grpo_trainer import RewardFunc
 from trl.trainer.utils import  pad, selective_log_softmax
 
 if is_peft_available():
@@ -47,7 +45,16 @@ if is_vllm_available():
 if is_wandb_available():
     import wandb
 
-RewardFunc = Union[str,PreTrainedModel,Callable[[list,list],list[float]]]
+
+logger = transformers.utils.logging.get_logger(__name__)
+_DEBUG_BRENCH_GRPO = os.getenv("DEBUG_BRENCH_GRPO", "0") == "1"
+
+
+def _debug_log(*args):
+    if _DEBUG_BRENCH_GRPO:
+        logger.info(" ".join(str(a) for a in args))
+
+RewardFuncType = Union[str, PreTrainedModel, Callable[[list, list], list[float]]]
 
 class RepeatRandomSampler(Sampler):
     """
@@ -143,7 +150,7 @@ class BrenchGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
         model: Union[str, PreTrainedModel],
-        reward_funcs: Union[RewardFunc, list[RewardFunc]],
+        reward_funcs: Union[RewardFuncType, list[RewardFuncType]],
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
@@ -216,12 +223,15 @@ class BrenchGRPOTrainer(GRPOTrainer):
             processing_class = AutoTokenizer.from_pretrained(model.config._name_or_path, padding_side="left")
 
         # Reward Functions
-        if not isinstance(reward_funcs,list):
+        if not isinstance(reward_funcs, list):
             reward_funcs = [reward_funcs]
+        if not reward_funcs:
+            raise ValueError("At least one reward function must be provided.")
         for i, reward_func in enumerate(reward_funcs):
             if isinstance(reward_func, str):
                 reward_funcs[i] = AutoModelForSequenceClassification.from_pretrained(reward_func, **model_init_kwargs)
-                self.reward_func = reward_funcs
+
+        self.reward_funcs = reward_funcs
 
         # Reward Weights
         if args.reward_weights is not None:
@@ -280,7 +290,8 @@ class BrenchGRPOTrainer(GRPOTrainer):
         # "Could not estimate the number of tokens of the input, floating-point operations will not be computed." To
         # suppress this warning, we set the "estimate_tokens" key in the model's "warnings_issued" dictionary to True.
         # This acts as a flag to indicate that the warning has already been issued.
-        model.warnings_issued["estimate_tokens"] = True
+        if hasattr(model, "warnings_issued") and isinstance(model.warnings_issued, dict):
+            model.warnings_issued["estimate_tokens"] = True
 
         # Initialize the metrics
         self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
@@ -508,15 +519,15 @@ class BrenchGRPOTrainer(GRPOTrainer):
                     for output in outputs.outputs:
                         completion_ids.append(output.token_ids)
                 for output in all_outputs:
-                    print('-'*100)
-                    print('\n\n\n')
+                    _debug_log('-' * 100)
+                    _debug_log('')
                     prompt = output.prompt
                     for output_t in  output.outputs:
                         # print(completion_ids)
-                        print('='*100)
+                        _debug_log('=' * 100)
                         generated_text = output_t.text
-                        print("【USER】: ", prompt )
-                        print("\n【ASSISTANT】:", generated_text)
+                        _debug_log('【USER】:', prompt)
+                        _debug_log('【ASSISTANT】:', generated_text)
             else:
                 completion_ids = [None] * len(all_prompts_text)
             # Broadcast the completions from the main process to all processes, ensuring each process receives its
@@ -552,9 +563,9 @@ class BrenchGRPOTrainer(GRPOTrainer):
             prompt_string = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
             output_string = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
             for prompt, completion in zip(prompt_string, output_string):
-                print('='*100)
-                print("【USER】: ", prompt )
-                print("\n【ASSISTANT】:", completion)
+                _debug_log('=' * 100)
+                _debug_log('【USER】:', prompt)
+                _debug_log('【ASSISTANT】:', completion)
 
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.processing_class.eos_token_id
@@ -582,12 +593,12 @@ class BrenchGRPOTrainer(GRPOTrainer):
             if self.beta == 0.0:
                 ref_per_token_logps = None
             elif self.ref_model is not None:
-                print('is not peft')
+                _debug_log('is not peft')
                 ref_per_token_logps = self._get_per_token_logps(
                     self.ref_model, prompt_completion_ids, attention_mask, logits_to_keep
                 )
             else:
-                print('is peft')
+                _debug_log('is peft')
                 with self.accelerator.unwrap_model(self.model).disable_adapter():
                     ref_per_token_logps = self._get_per_token_logps(
                         self.model, prompt_completion_ids, attention_mask, logits_to_keep
@@ -598,7 +609,7 @@ class BrenchGRPOTrainer(GRPOTrainer):
         if is_conversational(inputs[0]):
             completions = []
             for prompt, completion in zip(prompts, completions_text):
-                bootstrap = prompt.pop()["content"] if prompt[-1]["role"] == "assistant" else ""
+                bootstrap = prompt[-1]["content"] if prompt and prompt[-1]["role"] == "assistant" else ""
                 completions.append([{"role": "assistant", "content": bootstrap + completion}])
         else:
             completions = completions_text
@@ -624,6 +635,11 @@ class BrenchGRPOTrainer(GRPOTrainer):
                 keys = [key for key in inputs[0] if key not in ["prompt", "completion"]]
                 reward_kwargs = {key: [example[key] for example in inputs] for key in keys}
                 output_reward_func = reward_func(prompts=prompts, completions=completions, **reward_kwargs)
+                if len(output_reward_func) != len(prompts):
+                    raise ValueError(
+                        f"Reward function `{reward_func.__name__}` returned {len(output_reward_func)} values for "
+                        f"{len(prompts)} prompts."
+                    )
                 rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
 
         # Gather the reward per function: this part is crucial, because the rewards are normalized per group and the
@@ -632,7 +648,7 @@ class BrenchGRPOTrainer(GRPOTrainer):
 
         # Apply weights to each reward function's output and sum
         rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).sum(dim=1)
-        print('x_grpo_rewars output:',rewards)
+        _debug_log('x_grpo_rewards output:', rewards)
 
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
@@ -643,7 +659,7 @@ class BrenchGRPOTrainer(GRPOTrainer):
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
         advantages = (rewards - mean_grouped_rewards) / (std_grouped_rewards + 1e-4)
 
-        print('advantage:', advantages)
+        _debug_log('advantage:', advantages)
 
         # Slice to keep only the local part of the data
         process_slice = slice(
@@ -652,7 +668,7 @@ class BrenchGRPOTrainer(GRPOTrainer):
         )
         advantages = advantages[process_slice]
 
-        print('advantage:', advantages)
+        _debug_log('advantage:', advantages)
 
         # Log the metrics
         mode = "eval" if self.control.should_evaluate else "train"
@@ -677,14 +693,8 @@ class BrenchGRPOTrainer(GRPOTrainer):
             rewards_to_log = rewards.tolist()
 
             if self.accelerator.is_main_process:
-                if is_rich_available():
-                    print_prompt_completions_sample(
-                        prompts_to_log,
-                        completions_to_log,
-                        rewards_to_log,
-                        self.state.global_step,
-                    )
-                if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:
+                # Optional rich sampling display omitted to avoid hard dependency at runtime.
+                if self.args.report_to and "wandb" in self.args.report_to and "wandb" in globals() and wandb.run is not None:
                     import pandas as pd
 
                     # For logging
